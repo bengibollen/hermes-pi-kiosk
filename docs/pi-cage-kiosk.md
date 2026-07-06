@@ -1,13 +1,13 @@
 # Pi Cage Kiosk Setup
 
 For a Raspberry Pi without a full desktop environment, Cage is a good first
-choice. Cage is the minimal Wayland kiosk compositor; Chromium is still the app
-runtime.
+choice. Cage is the minimal Wayland kiosk compositor; `surf` is the lightweight
+browser runtime.
 
 ```text
 systemd/login
   cage
-    chromium
+    surf
       http://127.0.0.1:8090
 ```
 
@@ -18,11 +18,8 @@ kiosk:
 
 ```sh
 sudo apt update
-sudo apt install cage chromium-browser
+sudo apt install alsa-utils cage surf
 ```
-
-Package names may vary slightly by Raspberry Pi OS/Debian release. If
-`chromium-browser` is unavailable, check for `chromium`.
 
 ## Manual Test
 
@@ -30,23 +27,14 @@ Start the kiosk UI server:
 
 ```sh
 cd ~/hermes-pi-kiosk
-python3 -m http.server 8090 --directory public
+scripts/hermes-kiosk-server.py
 ```
 
-From the Pi console, launch Chromium inside Cage:
+From the Pi console, launch `surf` inside Cage:
 
 ```sh
-cage -- chromium-browser \
-  --kiosk \
-  --ozone-platform=wayland \
-  --noerrdialogs \
-  --disable-infobars \
-  --disable-session-crashed-bubble \
-  http://127.0.0.1:8090
+cage -- surf http://127.0.0.1:8090
 ```
-
-If Chromium complains about the binary name, try `chromium` instead of
-`chromium-browser`.
 
 ## Installer Script
 
@@ -56,20 +44,30 @@ The project includes a helper script for the Pi:
 scripts/install-pi-kiosk.sh
 ```
 
-To also create systemd user services for the static web server and Cage kiosk:
+To also create systemd services for the static web server and Cage kiosk:
 
 ```sh
 scripts/install-pi-kiosk.sh --with-systemd
 ```
 
-The script is intentionally conservative. It installs `cage`, Chromium, and
-`python3`, then writes user services only when `--with-systemd` is passed.
+The script is intentionally conservative. It installs `alsa-utils`, `cage`,
+`surf`, and `python3`, then writes system services only when `--with-systemd` is
+passed.
+The web server runs as the kiosk user, while Cage runs from a system service
+attached to `tty1` so it can acquire a local DRM session.
+
+The local web server also exposes a small audio test API. By default it records
+four seconds from ALSA's `default` capture device and plays the WAV back through
+ALSA's `default` playback device.
 
 Useful overrides:
 
 ```sh
 HERMES_KIOSK_PORT=8090 scripts/install-pi-kiosk.sh --with-systemd
 HERMES_KIOSK_URL=http://127.0.0.1:8090 scripts/install-pi-kiosk.sh --with-systemd
+HERMES_AUDIO_RECORD_SECONDS=4 scripts/install-pi-kiosk.sh --with-systemd
+HERMES_AUDIO_CAPTURE_DEVICE=default scripts/install-pi-kiosk.sh --with-systemd
+HERMES_AUDIO_PLAYBACK_DEVICE=default scripts/install-pi-kiosk.sh --with-systemd
 ```
 
 ## Recommendation

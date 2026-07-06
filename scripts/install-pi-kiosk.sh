@@ -4,6 +4,9 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_URL="${HERMES_KIOSK_URL:-http://127.0.0.1:8090}"
 PORT="${HERMES_KIOSK_PORT:-8090}"
+AUDIO_RECORD_SECONDS="${HERMES_AUDIO_RECORD_SECONDS:-4}"
+AUDIO_CAPTURE_DEVICE="${HERMES_AUDIO_CAPTURE_DEVICE:-default}"
+AUDIO_PLAYBACK_DEVICE="${HERMES_AUDIO_PLAYBACK_DEVICE:-default}"
 
 usage() {
   cat <<EOF
@@ -12,12 +15,19 @@ Usage: scripts/install-pi-kiosk.sh [--with-systemd]
 Installs packages needed to run Hermes Pi Kiosk on Raspberry Pi OS Lite.
 
 Options:
-  --with-systemd   Create and enable user services for the local web server
-                   and Cage/Chromium kiosk.
+  --with-systemd   Create and enable system services for the local web server
+                   and Cage/surf kiosk on tty1.
 
 Environment:
-  HERMES_KIOSK_URL    URL Chromium opens. Default: ${APP_URL}
+  HERMES_KIOSK_URL    URL surf opens. Default: ${APP_URL}
   HERMES_KIOSK_PORT   Local static server port. Default: ${PORT}
+  HERMES_KIOSK_USER   User to run kiosk services as. Default: ${USER}
+  HERMES_AUDIO_RECORD_SECONDS
+                      Audio test recording length. Default: ${AUDIO_RECORD_SECONDS}
+  HERMES_AUDIO_CAPTURE_DEVICE
+                      ALSA capture device. Default: ${AUDIO_CAPTURE_DEVICE}
+  HERMES_AUDIO_PLAYBACK_DEVICE
+                      ALSA playback device. Default: ${AUDIO_PLAYBACK_DEVICE}
 EOF
 }
 
@@ -47,30 +57,20 @@ fi
 echo "Installing kiosk packages..."
 sudo apt-get update
 
-if apt-cache show chromium-browser >/dev/null 2>&1; then
-  CHROMIUM_PACKAGE="chromium-browser"
-elif apt-cache show chromium >/dev/null 2>&1; then
-  CHROMIUM_PACKAGE="chromium"
-else
-  echo "Could not find chromium-browser or chromium in apt." >&2
-  exit 1
-fi
-
 sudo apt-get install -y \
+  alsa-utils \
   cage \
-  "${CHROMIUM_PACKAGE}" \
+  surf \
   python3
 
-if command -v chromium-browser >/dev/null 2>&1; then
-  CHROMIUM_BIN="$(command -v chromium-browser)"
-elif command -v chromium >/dev/null 2>&1; then
-  CHROMIUM_BIN="$(command -v chromium)"
+if command -v surf >/dev/null 2>&1; then
+  BROWSER_BIN="$(command -v surf)"
 else
-  echo "Chromium package installed, but no chromium binary was found on PATH." >&2
+  echo "surf package installed, but no surf binary was found on PATH." >&2
   exit 1
 fi
 
-echo "Using Chromium binary: ${CHROMIUM_BIN}"
+echo "Using browser binary: ${BROWSER_BIN}"
 
 if [[ "${WITH_SYSTEMD}" -eq 0 ]]; then
   cat <<EOF
@@ -79,63 +79,94 @@ Package install complete.
 
 Manual test:
   cd "${PROJECT_DIR}"
-  python3 -m http.server "${PORT}" --directory public
+  HERMES_KIOSK_PORT="${PORT}" \\
+    HERMES_AUDIO_RECORD_SECONDS="${AUDIO_RECORD_SECONDS}" \\
+    HERMES_AUDIO_CAPTURE_DEVICE="${AUDIO_CAPTURE_DEVICE}" \\
+    HERMES_AUDIO_PLAYBACK_DEVICE="${AUDIO_PLAYBACK_DEVICE}" \\
+    scripts/hermes-kiosk-server.py
 
 Then from the Pi console:
-  cage -- "${CHROMIUM_BIN}" --kiosk --ozone-platform=wayland --noerrdialogs --disable-infobars --disable-session-crashed-bubble "${APP_URL}"
+  cage -- "${BROWSER_BIN}" "${APP_URL}"
 
-Run again with --with-systemd to create user services.
+Run again with --with-systemd to create system services.
 EOF
   exit 0
 fi
 
-SYSTEMD_DIR="${HOME}/.config/systemd/user"
-mkdir -p "${SYSTEMD_DIR}"
+KIOSK_USER="${HERMES_KIOSK_USER:-${USER}}"
+KIOSK_UID="$(id -u "${KIOSK_USER}")"
+SYSTEMD_DIR="/etc/systemd/system"
+TMP_DIR="$(mktemp -d)"
+trap 'rm -rf "${TMP_DIR}"' EXIT
 
-cat > "${SYSTEMD_DIR}/hermes-kiosk-web.service" <<EOF
+cat > "${TMP_DIR}/hermes-kiosk-web.service" <<EOF
 [Unit]
 Description=Hermes Pi Kiosk static web server
+After=network-online.target
+Wants=network-online.target
 
 [Service]
+User=${KIOSK_USER}
 WorkingDirectory=${PROJECT_DIR}
-ExecStart=/usr/bin/python3 -m http.server ${PORT} --directory public
+Environment=HERMES_KIOSK_PORT=${PORT}
+Environment=HERMES_AUDIO_RECORD_SECONDS=${AUDIO_RECORD_SECONDS}
+Environment=HERMES_AUDIO_CAPTURE_DEVICE=${AUDIO_CAPTURE_DEVICE}
+Environment=HERMES_AUDIO_PLAYBACK_DEVICE=${AUDIO_PLAYBACK_DEVICE}
+ExecStart=${PROJECT_DIR}/scripts/hermes-kiosk-server.py
 Restart=always
 RestartSec=2
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
 EOF
 
-cat > "${SYSTEMD_DIR}/hermes-kiosk.service" <<EOF
+cat > "${TMP_DIR}/hermes-kiosk.service" <<EOF
 [Unit]
 Description=Hermes Pi Kiosk display
-After=hermes-kiosk-web.service
+After=systemd-user-sessions.service hermes-kiosk-web.service
 Wants=hermes-kiosk-web.service
+Conflicts=getty@tty1.service
+After=getty@tty1.service
 
 [Service]
-ExecStart=/usr/bin/cage -- ${CHROMIUM_BIN} --kiosk --ozone-platform=wayland --noerrdialogs --disable-infobars --disable-session-crashed-bubble ${APP_URL}
+User=${KIOSK_USER}
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty1
+UtmpMode=user
+Environment=XDG_RUNTIME_DIR=/run/user/${KIOSK_UID}
+Environment=HOME=/home/${KIOSK_USER}
+ExecStart=/usr/bin/cage -- ${BROWSER_BIN} ${APP_URL}
 Restart=always
 RestartSec=2
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
 EOF
 
-systemctl --user daemon-reload
-systemctl --user enable hermes-kiosk-web.service hermes-kiosk.service
+if systemctl --user list-unit-files hermes-kiosk-web.service hermes-kiosk.service >/dev/null 2>&1; then
+  systemctl --user disable --now hermes-kiosk-web.service hermes-kiosk.service >/dev/null 2>&1 || true
+fi
+
+sudo install -m 0644 "${TMP_DIR}/hermes-kiosk-web.service" "${SYSTEMD_DIR}/hermes-kiosk-web.service"
+sudo install -m 0644 "${TMP_DIR}/hermes-kiosk.service" "${SYSTEMD_DIR}/hermes-kiosk.service"
+sudo systemctl daemon-reload
+sudo systemctl enable hermes-kiosk-web.service hermes-kiosk.service
 
 cat <<EOF
 
-Systemd user services installed and enabled:
+Systemd services installed and enabled:
   hermes-kiosk-web.service
   hermes-kiosk.service
 
 Start them now with:
-  systemctl --user start hermes-kiosk-web.service hermes-kiosk.service
-
-If they should start automatically after boot without an interactive login, run:
-  sudo loginctl enable-linger "$USER"
+  sudo systemctl start hermes-kiosk-web.service hermes-kiosk.service
 
 Check logs with:
-  journalctl --user -u hermes-kiosk.service -f
+  journalctl -u hermes-kiosk.service -f
 EOF

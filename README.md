@@ -7,23 +7,23 @@ This project is separate from:
 - `hermes-drive`: backend trip context API
 - `gps-tui`: GPS diagnostics and logging tool
 
-The kiosk UI is intended to run fullscreen in Chromium on the Pi's 800x460 touch
-display. A small local Pi agent can later serve this UI, read `gpsd`, publish
+The kiosk UI is intended to run fullscreen on the Pi's 800x460 touch display.
+A small local Pi agent can later serve this UI, read `gpsd`, publish
 locations to Hermes Drive, and expose local hardware/task controls.
 
 ## Display Stack
 
-Chromium is enough for the application target. Wayland or X11 is the operating
-system display stack underneath Chromium.
+The application target is a local web UI. Wayland or X11 is the operating
+system display stack underneath the browser runtime.
 
 Recommended first setup:
 
 - Raspberry Pi OS Lite with Cage, or Raspberry Pi OS with Desktop
-- Chromium in kiosk mode
+- `surf` as a lightweight WebKit browser runtime
 - Localhost web app served by a small Pi agent or static file server
 
 Do not build against Wayland directly unless the UI later needs native display
-integration. For this project, HTML/CSS/JavaScript in Chromium is the right
+integration. For this project, HTML/CSS/JavaScript in a browser is the right
 abstraction.
 
 If the Pi has no desktop environment installed, see `docs/pi-cage-kiosk.md`.
@@ -42,7 +42,7 @@ If the Pi has no desktop environment installed, see `docs/pi-cage-kiosk.md`.
 From this project directory:
 
 ```sh
-python3 -m http.server 8090 --directory public
+scripts/hermes-kiosk-server.py
 ```
 
 Then open:
@@ -51,7 +51,7 @@ Then open:
 http://127.0.0.1:8090
 ```
 
-On the Pi, Chromium can later launch this URL in kiosk mode.
+On the Pi, the kiosk browser can later launch this URL fullscreen.
 
 ## Pi Install Helper
 
@@ -61,8 +61,12 @@ On Raspberry Pi OS Lite, run:
 scripts/install-pi-kiosk.sh
 ```
 
-To also create systemd user services:
+To also create systemd services:
 
 ```sh
 scripts/install-pi-kiosk.sh --with-systemd
 ```
+
+The installer includes `alsa-utils` for local microphone/speaker testing. The
+UI has an Audio Test button that records a short WAV with `arecord` and plays it
+back with `aplay`.
