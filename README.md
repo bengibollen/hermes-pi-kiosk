@@ -68,5 +68,8 @@ scripts/install-pi-kiosk.sh --with-systemd
 ```
 
 The installer includes `alsa-utils` for local microphone/speaker testing. The
-UI has an Audio Test button that records a short WAV with `arecord` and plays it
-back with `aplay`.
+local server still has audio test endpoints, but audio controls are paused in
+the UI while the GPS display is the active focus.
+
+The kiosk server reads gpsd on `127.0.0.1:2947` and updates the display with
+current GPS fix status, speed, coordinates, and last GPS timestamp.

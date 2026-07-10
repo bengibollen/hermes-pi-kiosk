@@ -6,7 +6,6 @@ const state = {
   location: "Waiting for GPS",
   trip: "Not started",
   lastUpdate: "Never",
-  audioBusy: false,
 };
 
 function render() {
@@ -17,8 +16,6 @@ function render() {
   document.querySelector("#location").textContent = state.location;
   document.querySelector("#trip").textContent = state.trip;
   document.querySelector("#last-update").textContent = state.lastUpdate;
-  document.querySelector("#audio-test").disabled = state.audioBusy;
-  document.querySelector("#play-audio").disabled = state.audioBusy;
 }
 
 function markUpdated() {
@@ -29,56 +26,56 @@ function markUpdated() {
   });
 }
 
-async function postJson(url) {
-  const response = await fetch(url, { method: "POST" });
+async function getJson(url) {
+  const response = await fetch(url);
   const body = await response.json().catch(() => ({}));
-  if (!response.ok || body.ok === false) {
+  if (!response.ok) {
     const message = body.error || body.stderr || `${response.status} ${response.statusText}`;
     throw new Error(message);
   }
   return body;
 }
 
-async function runAudioLoopback() {
-  state.audioBusy = true;
-  state.hermesStatus = "Recording";
-  state.location = "Audio test: speak now";
-  markUpdated();
-  render();
-
+async function refreshGps() {
   try {
-    await postJson("/api/audio/loopback");
-    state.hermesStatus = "Played back";
-    state.location = "Audio test completed";
+    const gps = await getJson("/api/gps/status");
+    state.gpsStatus = gps.status || "Unknown";
+    state.speed = gps.speedKmh || 0;
+    state.location = formatLocation(gps);
+    state.lastUpdate = formatGpsTime(gps.time);
   } catch (error) {
-    state.hermesStatus = "Audio error";
+    state.gpsStatus = "Offline";
+    state.speed = 0;
     state.location = error.message;
-  } finally {
-    state.audioBusy = false;
     markUpdated();
-    render();
   }
+  render();
 }
 
-async function playLastRecording() {
-  state.audioBusy = true;
-  state.hermesStatus = "Playing";
-  state.location = "Playing last audio test";
-  markUpdated();
-  render();
-
-  try {
-    await postJson("/api/audio/play");
-    state.hermesStatus = "Played back";
-    state.location = "Last audio test replayed";
-  } catch (error) {
-    state.hermesStatus = "Audio error";
-    state.location = error.message;
-  } finally {
-    state.audioBusy = false;
-    markUpdated();
-    render();
+function formatLocation(gps) {
+  if (typeof gps.lat !== "number" || typeof gps.lon !== "number") {
+    return gps.error || "Waiting for GPS";
   }
+
+  const sats = Number.isInteger(gps.satellitesUsed) ? ` ${gps.satellitesUsed} sat` : "";
+  return `${gps.lat.toFixed(5)}, ${gps.lon.toFixed(5)}${sats}`;
+}
+
+function formatGpsTime(value) {
+  if (!value) {
+    return "No GPS time";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function handleAction(action) {
@@ -86,12 +83,6 @@ function handleAction(action) {
 
   if (action === "push-to-talk") {
     state.hermesStatus = "Listening";
-  } else if (action === "audio-test") {
-    runAudioLoopback();
-    return;
-  } else if (action === "play-audio") {
-    playLastRecording();
-    return;
   } else if (action === "start-trip") {
     state.driveStatus = "Trip active";
     state.trip = "Started locally";
@@ -111,3 +102,5 @@ document.querySelectorAll("[data-action]").forEach((button) => {
 });
 
 render();
+refreshGps();
+window.setInterval(refreshGps, 1000);

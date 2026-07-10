@@ -18,7 +18,7 @@ kiosk:
 
 ```sh
 sudo apt update
-sudo apt install alsa-utils cage surf
+sudo apt install alsa-utils cage gpsd surf
 ```
 
 ## Manual Test
@@ -60,6 +60,10 @@ The local web server also exposes a small audio test API. By default it records
 four seconds from ALSA's `default` capture device and plays the WAV back through
 ALSA's `default` playback device.
 
+The same server polls gpsd locally and exposes `/api/gps/status` for the kiosk
+UI. Speed is converted from gpsd's meters-per-second value to km/h in the local
+server response.
+
 Useful overrides:
 
 ```sh
@@ -68,6 +72,8 @@ HERMES_KIOSK_URL=http://127.0.0.1:8090 scripts/install-pi-kiosk.sh --with-system
 HERMES_AUDIO_RECORD_SECONDS=4 scripts/install-pi-kiosk.sh --with-systemd
 HERMES_AUDIO_CAPTURE_DEVICE=default scripts/install-pi-kiosk.sh --with-systemd
 HERMES_AUDIO_PLAYBACK_DEVICE=default scripts/install-pi-kiosk.sh --with-systemd
+HERMES_GPSD_HOST=127.0.0.1 scripts/install-pi-kiosk.sh --with-systemd
+HERMES_GPSD_PORT=2947 scripts/install-pi-kiosk.sh --with-systemd
 ```
 
 ## Recommendation

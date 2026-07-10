@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+import socket
 import subprocess
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -15,6 +16,9 @@ AUDIO_FILE = STATE_DIR / "audio-test.wav"
 RECORD_SECONDS = int(os.environ.get("HERMES_AUDIO_RECORD_SECONDS", "4"))
 ARECORD_DEVICE = os.environ.get("HERMES_AUDIO_CAPTURE_DEVICE", "default")
 APLAY_DEVICE = os.environ.get("HERMES_AUDIO_PLAYBACK_DEVICE", "default")
+GPSD_HOST = os.environ.get("HERMES_GPSD_HOST", "127.0.0.1")
+GPSD_PORT = int(os.environ.get("HERMES_GPSD_PORT", "2947"))
+GPSD_TIMEOUT_SECONDS = float(os.environ.get("HERMES_GPSD_TIMEOUT_SECONDS", "1.5"))
 
 
 class KioskHandler(SimpleHTTPRequestHandler):
@@ -25,6 +29,10 @@ class KioskHandler(SimpleHTTPRequestHandler):
         print("%s - - [%s] %s" % (self.address_string(), self.log_date_time_string(), fmt % args))
 
     def do_GET(self):
+        if self.path.startswith("/api/gps/status"):
+            self.write_json(read_gps_status())
+            return
+
         if self.path.startswith("/api/audio/status"):
             self.write_json(
                 {
@@ -145,6 +153,111 @@ def run_command(cmd, timeout):
             "stdout": (exc.stdout or "").strip() if isinstance(exc.stdout, str) else "",
             "stderr": "Command timed out",
         }
+
+
+def read_gps_status():
+    try:
+        with socket.create_connection((GPSD_HOST, GPSD_PORT), timeout=GPSD_TIMEOUT_SECONDS) as gpsd:
+            gpsd.settimeout(GPSD_TIMEOUT_SECONDS)
+            gpsd.sendall(b'?WATCH={"enable":true,"json":true};\n')
+
+            best_tpv = None
+            best_sky = None
+            deadline = GPSD_TIMEOUT_SECONDS
+            gpsd.settimeout(deadline)
+
+            for _ in range(12):
+                line = read_socket_line(gpsd)
+                if not line:
+                    continue
+                message = json.loads(line)
+                message_class = message.get("class")
+                if message_class == "TPV":
+                    best_tpv = message
+                    if message.get("mode", 0) >= 2:
+                        break
+                elif message_class == "SKY":
+                    best_sky = message
+
+            return build_gps_response(best_tpv, best_sky)
+    except (ConnectionRefusedError, OSError, TimeoutError, json.JSONDecodeError) as exc:
+        return {
+            "ok": False,
+            "status": "Unavailable",
+            "error": str(exc),
+            "speedKmh": 0,
+            "mode": 0,
+            "time": None,
+            "lat": None,
+            "lon": None,
+            "alt": None,
+            "track": None,
+            "satellitesUsed": None,
+            "satellitesVisible": None,
+        }
+
+
+def read_socket_line(sock):
+    chunks = []
+    while True:
+        char = sock.recv(1)
+        if not char:
+            return b"".join(chunks).decode("utf-8").strip()
+        if char == b"\n":
+            return b"".join(chunks).decode("utf-8").strip()
+        chunks.append(char)
+
+
+def build_gps_response(tpv, sky):
+    if not tpv:
+        return {
+            "ok": False,
+            "status": "No data",
+            "speedKmh": 0,
+            "mode": 0,
+            "time": None,
+            "lat": None,
+            "lon": None,
+            "alt": None,
+            "track": None,
+            "satellitesUsed": count_satellites(sky, True),
+            "satellitesVisible": count_satellites(sky, False),
+        }
+
+    mode = int(tpv.get("mode", 0))
+    speed_mps = float(tpv.get("speed", 0) or 0)
+    return {
+        "ok": True,
+        "status": gps_status_label(mode),
+        "speedKmh": speed_mps * 3.6,
+        "mode": mode,
+        "time": tpv.get("time"),
+        "lat": tpv.get("lat"),
+        "lon": tpv.get("lon"),
+        "alt": tpv.get("altHAE", tpv.get("altMSL", tpv.get("alt"))),
+        "track": tpv.get("track"),
+        "satellitesUsed": count_satellites(sky, True),
+        "satellitesVisible": count_satellites(sky, False),
+    }
+
+
+def gps_status_label(mode):
+    if mode >= 3:
+        return "3D fix"
+    if mode == 2:
+        return "2D fix"
+    if mode == 1:
+        return "No fix"
+    return "Unknown"
+
+
+def count_satellites(sky, used_only):
+    if not sky or "satellites" not in sky:
+        return None
+    satellites = sky.get("satellites", [])
+    if used_only:
+        return sum(1 for satellite in satellites if satellite.get("used"))
+    return len(satellites)
 
 
 def main():

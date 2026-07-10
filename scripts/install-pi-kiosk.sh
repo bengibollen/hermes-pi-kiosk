@@ -7,6 +7,8 @@ PORT="${HERMES_KIOSK_PORT:-8090}"
 AUDIO_RECORD_SECONDS="${HERMES_AUDIO_RECORD_SECONDS:-4}"
 AUDIO_CAPTURE_DEVICE="${HERMES_AUDIO_CAPTURE_DEVICE:-default}"
 AUDIO_PLAYBACK_DEVICE="${HERMES_AUDIO_PLAYBACK_DEVICE:-default}"
+GPSD_HOST="${HERMES_GPSD_HOST:-127.0.0.1}"
+GPSD_PORT="${HERMES_GPSD_PORT:-2947}"
 
 usage() {
   cat <<EOF
@@ -28,6 +30,8 @@ Environment:
                       ALSA capture device. Default: ${AUDIO_CAPTURE_DEVICE}
   HERMES_AUDIO_PLAYBACK_DEVICE
                       ALSA playback device. Default: ${AUDIO_PLAYBACK_DEVICE}
+  HERMES_GPSD_HOST    gpsd host. Default: ${GPSD_HOST}
+  HERMES_GPSD_PORT    gpsd port. Default: ${GPSD_PORT}
 EOF
 }
 
@@ -60,6 +64,7 @@ sudo apt-get update
 sudo apt-get install -y \
   alsa-utils \
   cage \
+  gpsd \
   surf \
   python3
 
@@ -83,6 +88,8 @@ Manual test:
     HERMES_AUDIO_RECORD_SECONDS="${AUDIO_RECORD_SECONDS}" \\
     HERMES_AUDIO_CAPTURE_DEVICE="${AUDIO_CAPTURE_DEVICE}" \\
     HERMES_AUDIO_PLAYBACK_DEVICE="${AUDIO_PLAYBACK_DEVICE}" \\
+    HERMES_GPSD_HOST="${GPSD_HOST}" \\
+    HERMES_GPSD_PORT="${GPSD_PORT}" \\
     scripts/hermes-kiosk-server.py
 
 Then from the Pi console:
@@ -112,6 +119,8 @@ Environment=HERMES_KIOSK_PORT=${PORT}
 Environment=HERMES_AUDIO_RECORD_SECONDS=${AUDIO_RECORD_SECONDS}
 Environment=HERMES_AUDIO_CAPTURE_DEVICE=${AUDIO_CAPTURE_DEVICE}
 Environment=HERMES_AUDIO_PLAYBACK_DEVICE=${AUDIO_PLAYBACK_DEVICE}
+Environment=HERMES_GPSD_HOST=${GPSD_HOST}
+Environment=HERMES_GPSD_PORT=${GPSD_PORT}
 ExecStart=${PROJECT_DIR}/scripts/hermes-kiosk-server.py
 Restart=always
 RestartSec=2
