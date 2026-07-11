@@ -9,6 +9,10 @@ AUDIO_CAPTURE_DEVICE="${HERMES_AUDIO_CAPTURE_DEVICE:-default}"
 AUDIO_PLAYBACK_DEVICE="${HERMES_AUDIO_PLAYBACK_DEVICE:-default}"
 GPSD_HOST="${HERMES_GPSD_HOST:-127.0.0.1}"
 GPSD_PORT="${HERMES_GPSD_PORT:-2947}"
+DRIVE_URL="${HERMES_DRIVE_URL:-http://127.0.0.1:8000}"
+DEVICE_ID="${HERMES_DEVICE_ID:-car-pi}"
+SUBJECT_ID="${HERMES_SUBJECT_ID:-default}"
+VEHICLE_ID="${HERMES_VEHICLE_ID:-default}"
 
 usage() {
   cat <<EOF
@@ -32,6 +36,10 @@ Environment:
                       ALSA playback device. Default: ${AUDIO_PLAYBACK_DEVICE}
   HERMES_GPSD_HOST    gpsd host. Default: ${GPSD_HOST}
   HERMES_GPSD_PORT    gpsd port. Default: ${GPSD_PORT}
+  HERMES_DRIVE_URL    Hermes Drive API base URL. Default: ${DRIVE_URL}
+  HERMES_DEVICE_ID    Device ID sent to Hermes Drive. Default: ${DEVICE_ID}
+  HERMES_SUBJECT_ID   Subject ID sent to Hermes Drive. Default: ${SUBJECT_ID}
+  HERMES_VEHICLE_ID   Vehicle ID sent to Hermes Drive. Default: ${VEHICLE_ID}
 EOF
 }
 
@@ -90,6 +98,10 @@ Manual test:
     HERMES_AUDIO_PLAYBACK_DEVICE="${AUDIO_PLAYBACK_DEVICE}" \\
     HERMES_GPSD_HOST="${GPSD_HOST}" \\
     HERMES_GPSD_PORT="${GPSD_PORT}" \\
+    HERMES_DRIVE_URL="${DRIVE_URL}" \\
+    HERMES_DEVICE_ID="${DEVICE_ID}" \\
+    HERMES_SUBJECT_ID="${SUBJECT_ID}" \\
+    HERMES_VEHICLE_ID="${VEHICLE_ID}" \\
     scripts/hermes-kiosk-server.py
 
 Then from the Pi console:
@@ -121,6 +133,10 @@ Environment=HERMES_AUDIO_CAPTURE_DEVICE=${AUDIO_CAPTURE_DEVICE}
 Environment=HERMES_AUDIO_PLAYBACK_DEVICE=${AUDIO_PLAYBACK_DEVICE}
 Environment=HERMES_GPSD_HOST=${GPSD_HOST}
 Environment=HERMES_GPSD_PORT=${GPSD_PORT}
+Environment=HERMES_DRIVE_URL=${DRIVE_URL}
+Environment=HERMES_DEVICE_ID=${DEVICE_ID}
+Environment=HERMES_SUBJECT_ID=${SUBJECT_ID}
+Environment=HERMES_VEHICLE_ID=${VEHICLE_ID}
 ExecStart=${PROJECT_DIR}/scripts/hermes-kiosk-server.py
 Restart=always
 RestartSec=2

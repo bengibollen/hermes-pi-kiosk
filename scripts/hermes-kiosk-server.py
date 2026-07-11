@@ -3,6 +3,9 @@ import json
 import os
 import socket
 import subprocess
+import urllib.error
+import urllib.parse
+import urllib.request
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -19,6 +22,11 @@ APLAY_DEVICE = os.environ.get("HERMES_AUDIO_PLAYBACK_DEVICE", "default")
 GPSD_HOST = os.environ.get("HERMES_GPSD_HOST", "127.0.0.1")
 GPSD_PORT = int(os.environ.get("HERMES_GPSD_PORT", "2947"))
 GPSD_TIMEOUT_SECONDS = float(os.environ.get("HERMES_GPSD_TIMEOUT_SECONDS", "1.5"))
+DRIVE_BASE_URL = os.environ.get("HERMES_DRIVE_URL", "http://127.0.0.1:8000").rstrip("/")
+DRIVE_TIMEOUT_SECONDS = float(os.environ.get("HERMES_DRIVE_TIMEOUT_SECONDS", "3"))
+DEVICE_ID = os.environ.get("HERMES_DEVICE_ID", "car-pi")
+SUBJECT_ID = os.environ.get("HERMES_SUBJECT_ID", "default")
+VEHICLE_ID = os.environ.get("HERMES_VEHICLE_ID", "default")
 
 
 class KioskHandler(SimpleHTTPRequestHandler):
@@ -60,7 +68,49 @@ class KioskHandler(SimpleHTTPRequestHandler):
             self.handle_audio_playback()
             return
 
+        if parsed.path == "/api/drive/action":
+            query = parse_qs(parsed.query)
+            action = query.get("action", [""])[0]
+            self.handle_drive_action(action)
+            return
+
         self.write_json({"ok": False, "error": "Not found"}, HTTPStatus.NOT_FOUND)
+
+    def handle_drive_action(self, action):
+        if action == "start-trip":
+            response = call_drive_api(
+                "/api/drive/trips/start",
+                body={
+                    "deviceId": DEVICE_ID,
+                    "subjectId": SUBJECT_ID,
+                    "vehicleId": VEHICLE_ID,
+                },
+            )
+        elif action == "stop-trip":
+            response = call_drive_api(
+                "/api/drive/trips/stop",
+                query={"subjectId": SUBJECT_ID, "vehicleId": VEHICLE_ID},
+            )
+        elif action in {"food", "parking"}:
+            gps = read_gps_status()
+            response = call_drive_api(
+                f"/api/drive/{action}",
+                query={
+                    "subjectId": SUBJECT_ID,
+                    "vehicleId": VEHICLE_ID,
+                    "responseMode": "json",
+                },
+                body=build_location_payload(gps),
+            )
+        else:
+            self.write_json(
+                {"ok": False, "error": f"Unsupported drive action: {action}"},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
+
+        status = HTTPStatus.OK if response.get("ok") else HTTPStatus.BAD_GATEWAY
+        self.write_json(response, status)
 
     def handle_audio_loopback(self, seconds):
         STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -258,6 +308,97 @@ def count_satellites(sky, used_only):
     if used_only:
         return sum(1 for satellite in satellites if satellite.get("used"))
     return len(satellites)
+
+
+def build_location_payload(gps):
+    if not gps.get("ok") or not isinstance(gps.get("lat"), (int, float)):
+        return None
+    if not isinstance(gps.get("lon"), (int, float)):
+        return None
+
+    return {
+        "deviceId": DEVICE_ID,
+        "subjectId": SUBJECT_ID,
+        "vehicleId": VEHICLE_ID,
+        "timestamp": gps.get("time") or current_utc_timestamp(),
+        "lat": gps["lat"],
+        "lon": gps["lon"],
+        "speedKmh": gps.get("speedKmh"),
+        "heading": gps.get("track"),
+        "source": "gpsd",
+    }
+
+
+def current_utc_timestamp():
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def call_drive_api(path, query=None, body=None):
+    url = DRIVE_BASE_URL + path
+    if query:
+        url += "?" + urllib.parse.urlencode(query)
+
+    data = None
+    headers = {}
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=DRIVE_TIMEOUT_SECONDS) as response:
+            response_body = response.read().decode("utf-8")
+            parsed = parse_response_body(response_body)
+            return {
+                "ok": 200 <= response.status < 300,
+                "statusCode": response.status,
+                "driveUrl": url,
+                "response": parsed,
+                "message": extract_drive_message(parsed),
+            }
+    except urllib.error.HTTPError as exc:
+        response_body = exc.read().decode("utf-8")
+        parsed = parse_response_body(response_body)
+        return {
+            "ok": False,
+            "statusCode": exc.code,
+            "driveUrl": url,
+            "response": parsed,
+            "message": extract_drive_message(parsed) or str(exc),
+        }
+    except (OSError, urllib.error.URLError, TimeoutError) as exc:
+        return {
+            "ok": False,
+            "statusCode": None,
+            "driveUrl": url,
+            "response": None,
+            "message": str(exc),
+        }
+
+
+def parse_response_body(response_body):
+    if not response_body:
+        return None
+    try:
+        return json.loads(response_body)
+    except json.JSONDecodeError:
+        return response_body
+
+
+def extract_drive_message(response):
+    if isinstance(response, dict):
+        if response.get("message"):
+            return response["message"]
+        active_trip_id = response.get("activeTripId")
+        if active_trip_id:
+            return "Trip active"
+        if "activeTripId" in response:
+            return "Trip stopped"
+    if isinstance(response, str):
+        return response
+    return None
 
 
 def main():

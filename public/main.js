@@ -36,6 +36,16 @@ async function getJson(url) {
   return body;
 }
 
+async function postJson(url) {
+  const response = await fetch(url, { method: "POST" });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.ok === false) {
+    const message = body.message || body.error || body.stderr || `${response.status} ${response.statusText}`;
+    throw new Error(message);
+  }
+  return body;
+}
+
 async function refreshGps() {
   try {
     const gps = await getJson("/api/gps/status");
@@ -50,6 +60,41 @@ async function refreshGps() {
     markUpdated();
   }
   render();
+}
+
+async function runDriveAction(action) {
+  state.hermesStatus = "Sending";
+  markUpdated();
+  render();
+
+  try {
+    const result = await postJson(`/api/drive/action?action=${encodeURIComponent(action)}`);
+    applyDriveResult(action, result);
+  } catch (error) {
+    state.hermesStatus = "Drive error";
+    state.trip = error.message;
+  }
+
+  markUpdated();
+  render();
+}
+
+function applyDriveResult(action, result) {
+  const response = result.response || {};
+  const message = result.message || response.message || "Done";
+  state.hermesStatus = message;
+
+  if (action === "start-trip") {
+    state.driveStatus = "Trip active";
+    state.trip = response.activeTripId || "Started";
+  } else if (action === "stop-trip") {
+    state.driveStatus = "Idle";
+    state.trip = "Stopped";
+  } else if (action === "food") {
+    state.trip = "Food requested";
+  } else if (action === "parking") {
+    state.trip = "Parking requested";
+  }
 }
 
 function formatLocation(gps) {
@@ -84,10 +129,17 @@ function handleAction(action) {
   if (action === "push-to-talk") {
     state.hermesStatus = "Listening";
   } else if (action === "start-trip") {
-    state.driveStatus = "Trip active";
-    state.trip = "Started locally";
-  } else if (action === "mark-stop") {
-    state.driveStatus = "Stopped";
+    runDriveAction(action);
+    return;
+  } else if (action === "stop-trip") {
+    runDriveAction(action);
+    return;
+  } else if (action === "food" || action === "parking") {
+    runDriveAction(action);
+    return;
+  } else if (action === "overnight") {
+    runDriveAction("parking");
+    return;
   } else {
     state.hermesStatus = action;
   }

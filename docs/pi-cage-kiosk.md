@@ -64,6 +64,11 @@ The same server polls gpsd locally and exposes `/api/gps/status` for the kiosk
 UI. Speed is converted from gpsd's meters-per-second value to km/h in the local
 server response.
 
+Drive buttons call Hermes Drive through the local kiosk server. Start/stop trip
+requests use `/api/drive/trips/start` and `/api/drive/trips/stop`. Food and
+parking buttons call `/api/drive/food` and `/api/drive/parking`, including the
+current gpsd location when one is available.
+
 Useful overrides:
 
 ```sh
@@ -74,6 +79,10 @@ HERMES_AUDIO_CAPTURE_DEVICE=default scripts/install-pi-kiosk.sh --with-systemd
 HERMES_AUDIO_PLAYBACK_DEVICE=default scripts/install-pi-kiosk.sh --with-systemd
 HERMES_GPSD_HOST=127.0.0.1 scripts/install-pi-kiosk.sh --with-systemd
 HERMES_GPSD_PORT=2947 scripts/install-pi-kiosk.sh --with-systemd
+HERMES_DRIVE_URL=http://127.0.0.1:8000 scripts/install-pi-kiosk.sh --with-systemd
+HERMES_DEVICE_ID=car-pi scripts/install-pi-kiosk.sh --with-systemd
+HERMES_SUBJECT_ID=default scripts/install-pi-kiosk.sh --with-systemd
+HERMES_VEHICLE_ID=default scripts/install-pi-kiosk.sh --with-systemd
 ```
 
 ## Recommendation

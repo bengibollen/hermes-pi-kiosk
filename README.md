@@ -73,3 +73,7 @@ the UI while the GPS display is the active focus.
 
 The kiosk server reads gpsd on `127.0.0.1:2947` and updates the display with
 current GPS fix status, speed, coordinates, and last GPS timestamp.
+
+Drive buttons proxy through the kiosk server to Hermes Drive. By default the
+server calls `http://127.0.0.1:8000` for trip start/stop, food, and parking
+requests.
